@@ -14,7 +14,12 @@
 import { appendFileSync, writeFileSync } from "node:fs";
 import { LangfuseClient } from "@langfuse/client";
 import { isAiConfigured } from "@/lib/ai/call";
-import { flushTraces, isTracingConfigured, setupTracing } from "@/lib/ai/tracing";
+import {
+  flushTraces,
+  isTracingConfigured,
+  langfuseConfig,
+  setupTracing,
+} from "@/lib/ai/tracing";
 import type { AgentVariant } from "@/lib/copper/assistant/ask";
 import { GOLDEN_SET, type GoldenCase } from "@/lib/copper/evals/golden-set";
 import { judge } from "@/lib/copper/evals/judge";
@@ -291,7 +296,9 @@ async function main() {
 
   paceGoogleRequests(Number(process.env.EVAL_RPM ?? 12));
   setupTracing();
-  const langfuse = isTracingConfigured() ? new LangfuseClient() : null;
+  const langfuse = isTracingConfigured()
+    ? new LangfuseClient(langfuseConfig())
+    : null;
   if (langfuse) await syncDataset(langfuse, GOLDEN_SET);
   else
     console.log(

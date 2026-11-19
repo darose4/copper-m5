@@ -11,11 +11,23 @@ import { LangfuseSpanProcessor } from "@langfuse/otel";
 import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node";
 import { registerTelemetry } from "ai";
 
+/**
+ * The Langfuse settings from the environment, with stray spaces and line
+ * breaks removed (a secret pasted or piped in often ends with one, and a URL
+ * that ends with one can't be used).
+ */
+export function langfuseConfig() {
+  return {
+    publicKey: process.env.LANGFUSE_PUBLIC_KEY?.trim() ?? "",
+    secretKey: process.env.LANGFUSE_SECRET_KEY?.trim() ?? "",
+    baseUrl:
+      process.env.LANGFUSE_BASE_URL?.trim() || "https://cloud.langfuse.com",
+  };
+}
+
 export function isTracingConfigured(): boolean {
-  return Boolean(
-    process.env.LANGFUSE_PUBLIC_KEY?.trim() &&
-    process.env.LANGFUSE_SECRET_KEY?.trim(),
-  );
+  const { publicKey, secretKey } = langfuseConfig();
+  return Boolean(publicKey && secretKey);
 }
 
 type Tracing = { processor: LangfuseSpanProcessor };
@@ -30,7 +42,10 @@ export function setupTracing(): boolean {
   if (globalTracing.__copperTracing) return true;
   // "immediate" sends each span as it ends, which suits a serverless host that
   // can stop a function as soon as it has answered.
-  const processor = new LangfuseSpanProcessor({ exportMode: "immediate" });
+  const processor = new LangfuseSpanProcessor({
+    ...langfuseConfig(),
+    exportMode: "immediate",
+  });
   new NodeTracerProvider({ spanProcessors: [processor] }).register();
   registerTelemetry(new OpenTelemetry());
   globalTracing.__copperTracing = { processor };
