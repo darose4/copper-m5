@@ -4,6 +4,12 @@ on:
   push:
   pull_request:
 
+# A newer push to the same branch makes the older run pointless, and the
+# evaluation spends real Gemini calls, so stop the old one.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   check:
     # Students work on macOS and Windows; Vercel builds on Linux.
@@ -23,3 +29,36 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+
+  # Module 5: the golden set. An AI judge grades Ask Copper's answers; the job
+  # fails, and so blocks the merge, when fewer than 80% pass. Scores also go to
+  # Langfuse as a dataset run. Needs these repository secrets (Settings >
+  # Secrets and variables > Actions): GOOGLE_GENERATIVE_AI_API_KEY,
+  # LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY, LANGFUSE_BASE_URL.
+  eval:
+    # Only on pull requests: every push to a branch would spend Gemini calls
+    # twice. Secrets aren't shared with pull requests from forks.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - name: Golden-set evaluation
+        run: npm run eval
+        env:
+          GOOGLE_GENERATIVE_AI_API_KEY: ${{ secrets.GOOGLE_GENERATIVE_AI_API_KEY }}
+          AI_MODEL: google/gemini-3.1-flash-lite
+          LANGFUSE_PUBLIC_KEY: ${{ secrets.LANGFUSE_PUBLIC_KEY }}
+          LANGFUSE_SECRET_KEY: ${{ secrets.LANGFUSE_SECRET_KEY }}
+          LANGFUSE_BASE_URL: ${{ secrets.LANGFUSE_BASE_URL }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: eval-results
+          path: eval-results.json
+          if-no-files-found: ignore

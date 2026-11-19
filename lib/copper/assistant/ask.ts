@@ -9,13 +9,21 @@
 // talking. Copper can hand the conversation to the Refund agent, a second
 // agent with its own instructions and tools, and the Refund agent can hand it
 // back. The agent that ends the turn answers the next message too.
+// Module 5: every question is one trace in Langfuse (lib/ai/tracing.ts): which
+// agent answered, its tool calls, tokens, cost and time. The `variant` picks
+// the two-agent setup (the default) or one support agent with every tool and
+// no handoff, so the golden-set evaluation can compare them.
+import { propagateAttributes, startActiveObservation } from "@langfuse/tracing";
 import { hasToolCall, stepCountIs } from "ai";
+import { after } from "next/server";
 import { callStream, THOUGHT_SUMMARIES } from "@/lib/ai/call";
 import { createLive, type Live } from "@/lib/ai/live";
+import { flushTraces } from "@/lib/ai/tracing";
 import {
   COPPER_HANDOFF,
   COPPER_INSTRUCTIONS,
   REFUND_AGENT_INSTRUCTIONS,
+  SINGLE_AGENT_INSTRUCTIONS,
 } from "@/lib/copper/assistant/instructions";
 import type {
   Agent,
@@ -25,11 +33,15 @@ import type {
 import {
   copperTools,
   refundAgentTools,
+  singleAgentTools,
   transferToRefundAgent,
 } from "@/lib/copper/assistant/tools";
 import type { Desk } from "@/lib/copper/orders";
 
 export type ChatMessage = { role: "user" | "assistant"; content: string };
+
+/** "multi": Copper and the Refund agent. "single": one agent with every tool. */
+export type AgentVariant = "multi" | "single";
 
 export type AskCopperRequest = {
   messages: ChatMessage[];
@@ -38,6 +50,8 @@ export type AskCopperRequest = {
   desk?: Desk;
   /** Who answers first: whoever ended the last turn. Copper by default. */
   agent?: Agent;
+  /** Two agents (default) or one. The chat panel never sets this; the evaluation does. */
+  variant?: AgentVariant;
 };
 
 export type AskCopperResult = { progress: Live<Progress> };
@@ -90,14 +104,29 @@ function agentCall(agent: Agent, messages: ChatMessage[], desk?: Desk) {
   );
 }
 
+/** The one-agent variant: Copper's tools plus the refund tools, no handoff. */
+function singleCall(messages: ChatMessage[], desk?: Desk) {
+  return callStream(
+    { module: 5, feature: "single-agent" },
+    {
+      messages,
+      providerOptions: THOUGHT_SUMMARIES,
+      instructions: desk ? SINGLE_AGENT_INSTRUCTIONS : COPPER_INSTRUCTIONS,
+      tools: singleAgentTools(desk),
+      stopWhen: stepCountIs(MAX_STEPS),
+    },
+  );
+}
+
 export async function askCopper({
   messages,
   useTools,
   desk,
   agent = "copper",
+  variant = "multi",
 }: AskCopperRequest): Promise<AskCopperResult> {
   const { live, update, done } = createLive<Progress>();
-  const first: Agent = desk && useTools ? agent : "copper";
+  const first: Agent = desk && useTools && variant === "multi" ? agent : "copper";
   const progress: Progress = {
     steps: [],
     reply: "",
@@ -118,8 +147,33 @@ export async function askCopper({
         step.type === "tool" && step.id === `${call}:${id}`,
     );
 
+  /**
+   * One agent's turn, as one named observation in Langfuse ("copper-agent",
+   * "refund-agent" or "single-agent"), so a trace shows which agent answered.
+   * The model call is started inside it, so its steps and tool calls nest
+   * under the agent. Returns who to hand off to, if anyone.
+   */
+  function follow(
+    current: Agent,
+    name: string,
+    start: () => ReturnType<typeof callStream>,
+  ): Promise<Agent | undefined> {
+    return startActiveObservation(
+      name,
+      async (observation) => {
+        const handoff = await readStream(current, start());
+        observation.update({
+          output: progress.reply,
+          metadata: { handedOffTo: handoff ?? null },
+        });
+        return handoff;
+      },
+      { asType: "agent" },
+    );
+  }
+
   /** Reads one agent's stream into progress. Returns who to hand off to. */
-  async function follow(
+  async function readStream(
     current: Agent,
     result: ReturnType<typeof callStream>,
   ): Promise<Agent | undefined> {
@@ -190,24 +244,23 @@ export async function askCopper({
     return handoff;
   }
 
-  // Read the stream in the background, so the panel gets the first update now.
-  void (async () => {
+  async function run() {
     try {
       if (!useTools) {
         // Without tools, send no instructions either: "always use your
         // tools" with no tools makes the model answer with nothing.
-        await follow(
-          "copper",
+        await follow("copper", "copper-agent", () =>
           callStream(
             { module: 2, feature: "ask-copper" },
             { messages, providerOptions: THOUGHT_SUMMARIES },
           ),
         );
+      } else if (variant === "single") {
+        await follow("copper", "single-agent", () => singleCall(messages, desk));
       } else {
         let current = first;
         for (let handoffs = 0; ; handoffs++) {
-          const next = await follow(
-            current,
+          const next = await follow(current, `${current}-agent`, () =>
             agentCall(current, messages, desk),
           );
           if (!next || next === current || handoffs >= MAX_HANDOFFS) break;
@@ -225,7 +278,44 @@ export async function askCopper({
       if (!progress.reply.trim()) progress.reply = SORRY;
     }
     done(snapshot());
-  })();
+  }
+
+  // One trace per question. Everything the model and the tools do inside run()
+  // lands underneath it in Langfuse.
+  const lastQuestion =
+    messages.findLast((message) => message.role === "user")?.content ?? "";
+  void propagateAttributes(
+    {
+      traceName: "ask-copper",
+      tags: [variant, useTools ? "tools" : "no-tools", desk ? "support" : "home"],
+      metadata: { variant, startedWith: first },
+    },
+    () =>
+      startActiveObservation(
+        "ask-copper",
+        async (span) => {
+          span.update({ input: lastQuestion });
+          await run();
+          span.update({
+            output: progress.reply,
+            metadata: {
+              answeredBy: progress.agent ?? "copper",
+              status: progress.status,
+              handoffs: progress.steps.filter((s) => s.type === "handoff")
+                .length,
+            },
+          });
+        },
+        { asType: "agent" },
+      ),
+  );
+  // Send the trace before a serverless host can stop this function. Outside a
+  // request (the evaluation script) the script flushes by itself.
+  try {
+    after(flushTraces);
+  } catch {
+    /* not in a request */
+  }
 
   return { progress: live };
 }

@@ -44,3 +44,6 @@ next-env.d.ts
 .grading/
 .vitest-cache/
 
+
+# Written by npm run eval
+/eval-results.json

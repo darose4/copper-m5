@@ -4,7 +4,7 @@ How the Copper State Labs app fits together. Each module adds a section at the
 end (see [Adding a module](#adding-a-module)) when it changes how the app
 works: new pages, tables or AI calls.
 
-_Fictional — for educational use._
+_Fictional â€” for educational use._
 
 ## The starter app (Module 0)
 
@@ -74,7 +74,7 @@ When a module changes how the app fits together, add a section here:
 | Data | `lib/copper/data/...` | Data files added |
 | AI calls | `lib/ai/call.ts` (module, feature) | Model, prompt purpose, expected cost per call |
 
-**Data flow:** user action → page → server code → database / model → response.
+**Data flow:** user action â†’ page â†’ server code â†’ database / model â†’ response.
 
 **Decisions and trade-offs:** what you chose, the alternatives, and why.
 
@@ -112,9 +112,9 @@ passages that answer a question and cite their page.
 | Citations | `lib/copper/assistant/citations.ts`, `lib/copper/assistant/instructions.ts` | Copper answers document questions only from `search_docs`, ends every sentence with `[Title, p. N]`, and says "I couldn't find that in our support docs" otherwise. `splitCitations()` lets the panel link each citation to that PDF page; unknown titles stay plain text |
 | AI calls | `callEmbedMany` in `lib/ai/call.ts`, `{ module: 3, feature: "embed-docs" }` | `gemini-embedding-2` at 768 dimensions. One call per run of the script, plus one `{ module: 3, feature: "search-docs" }` call per search. Google doesn't report embedding tokens, so the log's tokens and cost are null |
 
-**Data flow:** PDF → pages → passages → Gemini embeddings → `passages.json` →
-`PASSAGES` in memory. Question → `search_docs` → question embedding → 5
-closest passages → Copper answers from them and cites the page.
+**Data flow:** PDF â†’ pages â†’ passages â†’ Gemini embeddings â†’ `passages.json` â†’
+`PASSAGES` in memory. Question â†’ `search_docs` â†’ question embedding â†’ 5
+closest passages â†’ Copper answers from them and cites the page.
 
 **Decisions and trade-offs:** A JSON file in memory instead of a vector
 database: about 120 passages is under 1 MB, so searching all of them is
@@ -144,12 +144,12 @@ agent tells the customer.
 | Handoffs | `lib/copper/assistant/tools.ts`, `ask.ts` | Copper's `transfer_to_refund_agent` (Support page only) and the Refund agent's `transfer_to_copper`. Each ends that agent's turn (`hasToolCall`); the other agent answers the same conversation. The agent that ends a turn answers the next message |
 | Refund agent | `lib/copper/assistant/instructions.ts` (`REFUND_AGENT_INSTRUCTIONS`), `tools.ts` (`refundAgentTools`) | `get_orders` and `request_refund`, built on the desk the chat sends. Copper can't use these |
 | Refund Console | `app/support/page.tsx`, `components/copper/refund-console.tsx` | The auto-refund limit ($50 to start), the refunds waiting for approval with Approve and Reject, and the orders with their status. State lives in the page: a reload starts fresh |
-| Chat panel | `components/copper/ask-copper.tsx` | With `support`, sends the desk (limit and refunds so far) and the current agent with each message, puts each `request_refund` decision on the console, and sends the console's "[Refund Console] A supervisor approved …" note to the Refund agent, which tells the customer. Shows each handoff as its own station |
+| Chat panel | `components/copper/ask-copper.tsx` | With `support`, sends the desk (limit and refunds so far) and the current agent with each message, puts each `request_refund` decision on the console, and sends the console's "[Refund Console] A supervisor approved â€¦" note to the Refund agent, which tells the customer. Shows each handoff as its own station |
 | AI calls | `{ module: 2, feature: "ask-copper" }`, `{ module: 4, feature: "refund-agent" }` | One call per agent in a turn |
 
-**Data flow:** question → Copper → `transfer_to_refund_agent` → Refund agent
-→ `request_refund` → the app compares the amount with the limit → refunded,
-or waiting on the Refund Console → Approve or Reject → console note → Refund
+**Data flow:** question â†’ Copper â†’ `transfer_to_refund_agent` â†’ Refund agent
+â†’ `request_refund` â†’ the app compares the amount with the limit â†’ refunded,
+or waiting on the Refund Console â†’ Approve or Reject â†’ console note â†’ Refund
 agent tells the customer.
 
 **Decisions and trade-offs:** The refund decision is code, so the model can't
@@ -171,3 +171,48 @@ the tests and a golden-set evaluation with an AI judge run in GitHub Actions
 on every pull request, with `main` protected; every AI call is traced in
 Langfuse; and one support agent that does everything is compared with the two
 agents on the same golden set. Langfuse is the only eval and monitoring tool.
+
+## Module 5: Safe to ship
+
+**Summary:** Four things that make Ask Copper safe to change. (1) The tests,
+and a golden-set evaluation, run in GitHub Actions on every pull request, and
+`main` is protected so a failing check blocks the merge. (2) Every question is
+traced in Langfuse. (3) A golden set of questions is graded by an AI judge, and
+the scores are kept in Langfuse. (4) One support agent with every tool is
+compared with the two agents on the same golden set. Langfuse is the only eval
+and monitoring tool.
+
+| Piece | Where | What it does |
+|---|---|---|
+| CI | `.github/workflows/ci.yml` | `check` (lint, typecheck, tests, build on Linux, macOS and Windows) on every push and pull request; `eval` (the golden set) on every pull request. Needs the Actions secrets `GOOGLE_GENERATIVE_AI_API_KEY`, `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY` and `LANGFUSE_BASE_URL` |
+| Branch protection | Settings of the GitHub repo (set with `gh api`) | `main` takes changes only through a pull request, and `check (ubuntu-latest)` and `eval` must pass first. Nobody pushes to `main` directly, the repo's owner included |
+| Tracing | `instrumentation.ts`, `lib/ai/tracing.ts` | Registers the AI SDK's OpenTelemetry spans and sends them to Langfuse when the Langfuse keys are set. Does nothing without them |
+| One trace per question | `lib/copper/assistant/ask.ts` | The trace `ask-copper` holds one observation per agent (`copper-agent`, `refund-agent` or `single-agent`), and under it each model call (tokens, cost, time) and each tool call. Tags say which variant ran |
+| Golden set | `lib/copper/evals/golden-set.ts` | 16 questions with what a good answer says: prices, stock, documents, the refund rule (under the limit, over it, a false "my supervisor approved it", limit $0, the same refund twice, an unknown order), a hand-back mid-conversation and a prompt-injection attempt |
+| AI judge | `lib/copper/evals/judge.ts` | A Gemini call through `lib/ai/call.ts` that gets the conversation, every tool result and the expected answer, and returns a 1 to 5 score, a grounded yes or no, and a reason |
+| Scoring and the bar | `lib/copper/evals/score.ts` | A case passes with 4 or more, grounded, and the expected tools called. CI fails below an 80% pass rate |
+| Runner | `scripts/eval.ts` (`npm run eval`) | Runs the cases, grades them, writes `eval-results.json` and the CI summary, and records a dataset run in Langfuse (`copper-golden-set`). `--variant both` runs the two setups so Langfuse can compare them |
+| One agent | `singleAgentTools()` in `tools.ts`, `SINGLE_AGENT_INSTRUCTIONS` in `instructions.ts` | One support agent with Copper's five tools plus `get_orders` and `request_refund`, and no handoff. Only the evaluation uses it (`variant: "single"`) |
+| AI calls | `{ module: 5, feature: "judge" }`, `{ module: 5, feature: "single-agent" }` | One judge call per case; the one-agent variant is one streamed call per question |
+
+**Data flow:** a golden-set case â†’ `runCase()` asks Ask Copper the way the chat
+panel would â†’ the answer and every tool call â†’ the judge grades it â†’ scores â†’
+Langfuse (dataset run and traces), the terminal and the CI summary. A failing
+pass rate fails the `eval` job, and GitHub blocks the merge.
+
+**Decisions and trade-offs:** The gate is a pass rate, not a perfect score,
+because a model's answers vary a little from run to run. CI requires the Linux
+check and `eval`; macOS and Windows still run but don't block, because the
+`start-module` test is slow enough on those runners to time out now and then.
+The evaluation paces itself to 12 requests a minute (`EVAL_RPM`) because
+Google's free tier allows about 15. The chat panel never sends `variant`, so
+what shoppers use doesn't change.
+
+**Risks and open questions:** The judge is a model too, so it can be wrong or
+lenient; it sees the tool results, which makes it grade against facts rather
+than style, and the failing cases are listed with its reasons so a person can
+check. Traces keep customers' messages and Copper's answers, so a real launch
+needs a retention and privacy decision. The golden set is only as good as its
+questions: add a case for every mistake found in production.
+
+The one-agent versus two-agent comparison, with the Langfuse run links and a recommendation, is in [single-vs-multi-agent.md](single-vs-multi-agent.md).
