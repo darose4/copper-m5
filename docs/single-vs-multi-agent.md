@@ -71,6 +71,14 @@ I would go back to two agents when one of these becomes true:
 
 ## Limits of this comparison
 
+The two runs above were graded before one fix to the judge: it used to see a
+shortened copy of the document search results, so it could mark a correct,
+cited answer as invented when the useful passage was cut off (CI caught this
+once, on the C-31 question). The judge now sees all five passages in full. Both
+setups were graded by the same judge, so the comparison between them still
+holds, but re-run `npm run eval -- --variant both` for numbers from the fixed
+judge.
+
 16 questions and one run each is a small sample, and model answers vary a
 little from run to run. The judge is a model too: it was shown the tool
 results so it grades against facts, but it can still be lenient. Re-run it

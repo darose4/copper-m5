@@ -172,9 +172,41 @@ describe("the judge's prompt", () => {
     expect(judgePrompt(c, run())).toContain("(no tools were called)");
     const long = judgePrompt(
       c,
-      run({ toolCalls: [tool("search_docs", { text: "x".repeat(5000) })] }),
+      run({ toolCalls: [tool("get_products", { text: "x".repeat(5000) })] }),
     );
     expect(long.length).toBeLessThan(2500);
+  });
+
+  it("shows every document passage in full, so a cited answer isn't graded as invented", () => {
+    const c = GOLDEN_SET.find((x) => x.id === "docs-error-code")!;
+    const filler = (n: number) => ({
+      title: "Copper Home User Guide",
+      page: n,
+      text: `Unrelated passage ${n}. ${"y".repeat(400)}`,
+    });
+    const prompt = judgePrompt(
+      c,
+      run({
+        toolCalls: [
+          tool("search_docs", {
+            matches: [
+              filler(1),
+              filler(2),
+              filler(3),
+              filler(4),
+              {
+                title: "Copper Notes User Guide",
+                page: 8,
+                text: "C-31 Storage full: recordings haven't been uploaded yet.",
+              },
+            ],
+          }),
+        ],
+      }),
+    );
+    expect(prompt).toContain("[Copper Notes User Guide, p. 8]");
+    expect(prompt).toContain("C-31 Storage full");
+    expect(prompt).toContain("[Copper Home User Guide, p. 1]");
   });
 });
 

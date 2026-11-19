@@ -30,6 +30,24 @@ const clip = (value: unknown, max = 900) => {
   return text.length > max ? `${text.slice(0, max)}…` : text;
 };
 
+/**
+ * What a tool returned, as the judge reads it. Document passages are shown in
+ * full (title, page and text for all five), because the answer can come from
+ * any of them: cutting the list short made the judge think a correct,
+ * cited answer was invented. Everything else is kept short.
+ */
+function describeOutput(name: string, output: unknown): string {
+  const matches = (output as { matches?: unknown })?.matches;
+  if (name === "search_docs" && Array.isArray(matches))
+    return `these passages:\n${matches
+      .map(
+        (m: { title?: string; page?: number; text?: string }) =>
+          `   - [${m.title}, p. ${m.page}] ${clip(m.text ?? "", 500)}`,
+      )
+      .join("\n")}`;
+  return clip(output);
+}
+
 /** What the judge reads: the conversation and what each tool returned. */
 export function judgePrompt(testCase: GoldenCase, run: CaseRun): string {
   const conversation = run.turns
@@ -39,7 +57,7 @@ export function judgePrompt(testCase: GoldenCase, run: CaseRun): string {
     ? run.toolCalls
         .map(
           (c, i) =>
-            `${i + 1}. ${c.name}(${clip(c.input, 200)}) returned ${clip(c.output)}`,
+            `${i + 1}. ${c.name}(${clip(c.input, 200)}) returned ${describeOutput(c.name, c.output)}`,
         )
         .join("\n")
     : "(no tools were called)";
