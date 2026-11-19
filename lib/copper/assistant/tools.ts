@@ -293,8 +293,8 @@ export const transferToRefundAgent = tool({
   execute: async () => ({ handedTo: "Refund agent" }),
 });
 
-/** The Refund agent's own tools (Module 4). Copper can't use these. */
-export function refundAgentTools(desk: Desk) {
+/** The two refund tools, shared by the Refund agent and the single agent (Module 5). */
+export function refundDeskTools(desk: Desk) {
   return {
     get_orders: tool({
       description:
@@ -310,6 +310,22 @@ export function refundAgentTools(desk: Desk) {
       }),
       execute: async ({ orderId }) => requestRefund(orderId, desk),
     }),
+  };
+}
+
+/**
+ * The single support agent's tools (Module 5): all of Copper's tools and the
+ * refund tools together, with no handoff. Off the Support page there is no
+ * Refund Console, so it has only Copper's tools there.
+ */
+export function singleAgentTools(desk?: Desk) {
+  return desk ? { ...copperTools, ...refundDeskTools(desk) } : copperTools;
+}
+
+/** The Refund agent's own tools (Module 4). Copper can't use these. */
+export function refundAgentTools(desk: Desk) {
+  return {
+    ...refundDeskTools(desk),
     transfer_to_copper: tool({
       description:
         "Hands the customer back to Copper for anything that isn't a refund (products, prices, stock, setup, policies). Copper answers next, so write no reply of your own.",

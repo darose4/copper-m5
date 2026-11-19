@@ -114,7 +114,11 @@ async function tracked<T extends { usage: Usage }>(
 /** Generates text. Example: callText({ module: 3, feature: "support-answer" }, { prompt }) */
 export async function callText(info: CallInfo, options: TextOptions) {
   return tracked(info, (model) =>
-    generateText({ ...options, model: languageModel(model) }),
+    generateText({
+      ...options,
+      model: languageModel(model),
+      telemetry: { functionId: info.feature },
+    }),
   );
 }
 
@@ -128,6 +132,7 @@ export async function callObject<Schema extends z.ZodType>(
     generateText({
       ...rest,
       model: languageModel(model),
+      telemetry: { functionId: info.feature },
       output: Output.object({ schema }),
     }),
   );
@@ -162,6 +167,7 @@ export async function callEmbedMany(
     const result = await embedMany({
       model: google().embedding(EMBEDDING_MODEL.slice("google/".length)),
       values,
+      telemetry: { functionId: info.feature },
       providerOptions: {
         google: { outputDimensionality: EMBEDDING_DIMENSIONS },
       },
@@ -190,6 +196,8 @@ export function callStream(info: CallInfo, options: StreamOptions) {
   return streamText({
     ...options,
     model: languageModel(model),
+    // The feature name labels this agent's run in Langfuse.
+    telemetry: { functionId: info.feature },
     onFinish: ({ totalUsage }) => logCall(row(true, totalUsage)),
     onError: () => logCall(row(false)),
   });
