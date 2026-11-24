@@ -13,6 +13,7 @@
     "typecheck": "next typegen && tsc --noEmit",
     "test": "vitest run",
     "eval": "tsx --env-file-if-exists=.env.local scripts/eval.ts",
+    "speed": "tsx --env-file-if-exists=.env.local scripts/speed.ts",
     "format": "prettier --write .",
     "start-module": "node scripts/start-module.mjs",
     "env:check": "node scripts/check-env.mjs",

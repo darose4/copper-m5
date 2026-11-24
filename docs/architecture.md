@@ -192,6 +192,7 @@ and monitoring tool.
 | AI judge | `lib/copper/evals/judge.ts` | A Gemini call through `lib/ai/call.ts` that gets the conversation, every tool result and the expected answer, and returns a 1 to 5 score, a grounded yes or no, and a reason |
 | Scoring and the bar | `lib/copper/evals/score.ts` | A case passes with 4 or more, grounded, and the expected tools called. CI fails below an 80% pass rate |
 | Runner | `scripts/eval.ts` (`npm run eval`) | Runs the cases, grades them, writes `eval-results.json` and the CI summary, and records a dataset run in Langfuse (`copper-golden-set`). `--variant both` runs the two setups so Langfuse can compare them |
+| Speed check | `scripts/speed.ts` (`npm run speed`) | Runs 8 golden questions on each setup, one at a time with pauses so Google's rate limit adds no waiting, and prints the median and mean seconds per question. Kept apart from `npm run eval`, whose pacing hides real response times. Each run is also a Langfuse trace |
 | One agent | `singleAgentTools()` in `tools.ts`, `SINGLE_AGENT_INSTRUCTIONS` in `instructions.ts` | One support agent with Copper's five tools plus `get_orders` and `request_refund`, and no handoff. Only the evaluation uses it (`variant: "single"`) |
 | AI calls | `{ module: 5, feature: "judge" }`, `{ module: 5, feature: "single-agent" }` | One judge call per case; the one-agent variant is one streamed call per question |
 
