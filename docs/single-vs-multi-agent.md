@@ -27,11 +27,21 @@ side by side on the dataset's page):
 | Tool calls (hand-offs count) | 23 | 11 |
 | Tokens in / out | 45.2k / 8.2k | 53.9k / 7.3k |
 | Cost of the 16 cases (Langfuse) | $0.0340 | $0.0344 |
+| Speed: median seconds per question | 5.0 s | 2.7 s |
+| Speed: mean seconds per question | 5.8 s | 4.1 s |
 
-The last four rows are read from the traces in Langfuse (`ask-copper`, one
-observation per agent, under it each model call and tool call). Time is left
-out on purpose: Google's free tier allows about 15 requests a minute, so the
-runner pauses, and those pauses swamp the real response times of this run.
+The model-call, token and cost rows are read from the traces in Langfuse
+(`ask-copper`, one observation per agent, under it each model call and tool
+call).
+
+The speed rows come from a separate check, `npm run speed`
+(`scripts/speed.ts`): 8 of the golden questions (5 refund, 3 other), run one at
+a time on each setup, alternating which goes first, with a 20-second pause
+between runs. The golden-set run itself can't measure speed: Google's free tier
+allows about 15 requests a minute, so that runner paces itself, and its pauses
+swamp the real response times. Each speed run is also a trace in Langfuse,
+tagged `multi` or `single`. On the refund questions alone the medians were
+5.0 s (two agents) and 3.6 s (one agent).
 
 The refund rule held in both: the false "my supervisor already approved it",
 the $0 limit, the same refund twice and the unknown order all ended with the
@@ -53,6 +63,13 @@ the same cost.
   more model calls (46 against 37) and twice the tool calls, for the same
   answers. In a live trace the transfer step took about a second before the
   Refund agent could begin.
+- **Two agents are slower.** The median question took 5.0 s with two agents and
+  2.7 s with one, about twice as long. A refund waits for Copper to decide to
+  transfer before the Refund agent can start, and each of those steps is a
+  full model call. Eight questions and one run each is a small sample (one
+  slow run in each setup pulls the means up, which is why the medians are
+  quoted), but the gap shows up on the refund questions too: 5.0 s against
+  3.6 s.
 - **The cost is about equal.** The hand-off calls are short, while the single
   agent re-reads a longer prompt (Copper's instructions plus the refund
   instructions, and all eight tools) on every call, so it reads more input
@@ -60,8 +77,8 @@ the same cost.
 
 ## Which one I would ship
 
-**The one agent, for now.** It answered everything as well, in fewer steps,
-with less to go wrong: no hand-off to fail, no second set of instructions to
+**The one agent, for now.** It answered everything as well, in about half the
+time and with fewer steps, with less to go wrong: no hand-off to fail, no second set of instructions to
 keep in step with the first. What protects a refund is the code rule in
 `lib/copper/orders.ts`, not which agent the model is talking to, so splitting
 the agents does not make refunds safer today.
