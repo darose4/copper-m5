@@ -12,44 +12,51 @@ setups with `npm run eval -- --variant both`, on 2026-11-19 with
 Both runs are in Langfuse (dataset `copper-golden-set`; compare the two runs
 side by side on the dataset's page):
 
-- Two agents: https://us.cloud.langfuse.com/project/cmwo2lbl102hwad0j7fv2lw2p/experiments/results?baseline=6ca51bcc796069af
-- One agent: https://us.cloud.langfuse.com/project/cmwo2lbl102hwad0j7fv2lw2p/experiments/results?baseline=10732b939317ba35
+- Two agents: https://us.cloud.langfuse.com/project/cmwo2lbl102hwad0j7fv2lw2p/experiments/results?baseline=340321526ef6b71e
+- One agent: https://us.cloud.langfuse.com/project/cmwo2lbl102hwad0j7fv2lw2p/experiments/results?baseline=d43edcf78f44319e
 
 ## Results
 
 | | Two agents | One agent |
 |---|---|---|
 | Cases passed | 16 of 16 | 16 of 16 |
-| Judge correctness (average) | 98% | 96% |
+| Judge correctness (average) | 100% | 98% |
 | Grounded (nothing made up) | 100% | 100% |
 | Right tools called | 100% | 100% |
-| Model calls for the 16 cases | 48 | 36 |
-| Tool calls (hand-offs count) | 26 | 10 |
-| Tokens in / out | 48.7k / 8.1k | 51.1k / 8.3k |
-| Cost of the 16 cases (Langfuse) | $0.0348 | $0.0361 |
-| Time spent in the model, summed | 478 s | 372 s |
+| Model calls for the 16 cases | 46 | 37 |
+| Tool calls (hand-offs count) | 23 | 11 |
+| Tokens in / out | 45.2k / 8.2k | 53.9k / 7.3k |
+| Cost of the 16 cases (Langfuse) | $0.0340 | $0.0344 |
 
-The traces behind the last four rows are in Langfuse (`ask-copper`, one
-observation per agent, under it each model call and tool call). The time
-includes waits for Google's free-tier rate limit, so use it to compare the two
-setups with each other, not as a real response time.
+The last four rows are read from the traces in Langfuse (`ask-copper`, one
+observation per agent, under it each model call and tool call). Time is left
+out on purpose: Google's free tier allows about 15 requests a minute, so the
+runner pauses, and those pauses swamp the real response times of this run.
 
 The refund rule held in both: the false "my supervisor already approved it",
 the $0 limit, the same refund twice and the unknown order all ended with the
 app's decision, never the model's.
 
+An earlier run, graded before a fix to the judge, gave the same picture: 16 of
+16 for both, 98% against 96% correctness, 48 against 36 model calls, and about
+the same cost.
+
 ## What the numbers say
 
-- **Quality is a tie.** The judge's 98% and 96% are one case apart (two
-  answers lost one point each in the two-agent run, three in the one-agent run).
-  With 16 questions and one run each, that is noise, not a winner.
+- **Quality is a tie.** The judge's 100% and 98% are two answers apart (the
+  one-agent run lost one point on two answers). With 16 questions and one run
+  each, that is noise, not a winner. In the earlier run the lead went the other
+  way by a similar amount.
 - **Two agents cost more steps.** Every refund pays for a hand-off: one extra
   model call (Copper deciding to transfer) before the Refund agent starts, and
-  another hand-back when the customer changes topic. That is a third more
-  model calls and about a quarter more model time for the same answers.
+  another hand-back when the customer changes topic. That is about a quarter
+  more model calls (46 against 37) and twice the tool calls, for the same
+  answers. In a live trace the transfer step took about a second before the
+  Refund agent could begin.
 - **The cost is about equal.** The hand-off calls are short, while the single
   agent re-reads a longer prompt (Copper's instructions plus the refund
-  instructions) on every call, so the token bill nearly cancels out.
+  instructions, and all eight tools) on every call, so it reads more input
+  tokens and the bills come out within a percent of each other.
 
 ## Which one I would ship
 
@@ -71,16 +78,12 @@ I would go back to two agents when one of these becomes true:
 
 ## Limits of this comparison
 
-The two runs above were graded before one fix to the judge: it used to see a
-shortened copy of the document search results, so it could mark a correct,
-cited answer as invented when the useful passage was cut off (CI caught this
-once, on the C-31 question). The judge now sees all five passages in full. Both
-setups were graded by the same judge, so the comparison between them still
-holds, but re-run `npm run eval -- --variant both` for numbers from the fixed
-judge.
-
 16 questions and one run each is a small sample, and model answers vary a
-little from run to run. The judge is a model too: it was shown the tool
-results so it grades against facts, but it can still be lenient. Re-run it
-(`npm run eval -- --variant both`) after any change to the instructions or
-tools, and add a golden-set case for every mistake found in real use.
+little from run to run: in two CI runs of the two-agent setup, a different
+single case failed each time. The judge is a model too. It sees every tool
+result, including all five document passages (an earlier version saw a
+shortened copy and marked a correct, cited answer as invented; CI caught it),
+so it grades against facts, but it can still be too strict or too lenient.
+Re-run it (`npm run eval -- --variant both`) after any change to the
+instructions or tools, and add a golden-set case for every mistake found in
+real use.
